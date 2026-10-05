@@ -3,8 +3,10 @@ Attribute VB_Name = "mdUdf"
 ' mdUdf - registry and AddressOf trampolines for user-defined functions,
 ' aggregates and collations (see cConnection.AddUserDefined*).
 '
-' sqlite3mc.dll must be built with the MSVC /Gz switch (the whole ABI is StdCall,
-' as in winsqlite3.dll), so plain VB6 module procedures work as callbacks directly.
+' sqlite3.dll (SQLite3 Multiple Ciphers) uses the C calling convention, so
+' every procedure handed to SQLite via AddressOf is declared CDecl (a
+' twinBASIC extension). On Win32 that makes the callee leave the stack to
+' the caller as SQLite expects; on Win64 it is a no-op.
 ' Each registered name gets a slot holding the implementing object and its
 ' ZeroBasedNameIndex; the 1-based slot number travels through SQLite as
 ' the user-data pointer and comes back via sqlite3_user_data.
@@ -121,12 +123,12 @@ Public Sub UdfReleaseDb(ByVal hDb As LongPtr)
     Next
 End Sub
 
-Public Sub UdfFuncCallback(ByVal hCtx As LongPtr, ByVal lArgc As Long, ByVal lpArgv As LongPtr)
+Public Sub UdfFuncCallback CDecl(ByVal hCtx As LongPtr, ByVal lArgc As Long, ByVal lpArgv As LongPtr)
     Dim lSlot           As Long
     Dim oUdf            As cUDFMethods
 
     On Error GoTo EH
-    lSlot = stub_sqlite3_user_data(hCtx)
+    lSlot = CLng(stub_sqlite3_user_data(hCtx))
     Set oUdf = New cUDFMethods
     oUdf.frInit hCtx, lArgc, lpArgv
     m_aRegs(lSlot).oFunc.Callback m_aRegs(lSlot).lNameIdx, lArgc, oUdf
@@ -136,12 +138,12 @@ EH:
     pvResultError hCtx, Err.Description
 End Sub
 
-Public Sub UdfStepCallback(ByVal hCtx As LongPtr, ByVal lArgc As Long, ByVal lpArgv As LongPtr)
+Public Sub UdfStepCallback CDecl(ByVal hCtx As LongPtr, ByVal lArgc As Long, ByVal lpArgv As LongPtr)
     Dim lSlot           As Long
     Dim oUdf            As cUDFMethods
 
     On Error GoTo EH
-    lSlot = stub_sqlite3_user_data(hCtx)
+    lSlot = CLng(stub_sqlite3_user_data(hCtx))
     Set oUdf = New cUDFMethods
     oUdf.frInit hCtx, lArgc, lpArgv
     m_aRegs(lSlot).oAggFunc.CallbackStep m_aRegs(lSlot).lNameIdx, lArgc, oUdf
@@ -150,12 +152,12 @@ EH:
     pvResultError hCtx, Err.Description
 End Sub
 
-Public Sub UdfFinalCallback(ByVal hCtx As LongPtr)
+Public Sub UdfFinalCallback CDecl(ByVal hCtx As LongPtr)
     Dim lSlot           As Long
     Dim oUdf            As cUDFMethods
 
     On Error GoTo EH
-    lSlot = stub_sqlite3_user_data(hCtx)
+    lSlot = CLng(stub_sqlite3_user_data(hCtx))
     Set oUdf = New cUDFMethods
     oUdf.frInit hCtx, 0, 0
     m_aRegs(lSlot).oAggFunc.CallbackFinal m_aRegs(lSlot).lNameIdx, oUdf
@@ -164,14 +166,16 @@ EH:
     pvResultError hCtx, Err.Description
 End Sub
 
-Public Function UdfCollateCallback(ByVal lpArg As LongPtr, ByVal lLen1 As Long, ByVal lpStr1 As LongPtr, ByVal lLen2 As Long, ByVal lpStr2 As LongPtr) As Long
+Public Function UdfCollateCallback CDecl(ByVal lpArg As LongPtr, ByVal lLen1 As Long, ByVal lpStr1 As LongPtr, ByVal lLen2 As Long, ByVal lpStr2 As LongPtr) As Long
+    Dim lSlot           As Long
     Dim sStr1           As String
     Dim sStr2           As String
 
     On Error GoTo EH
+    lSlot = CLng(lpArg)
     sStr1 = FromUtf8PtrLen(lpStr1, lLen1)
     sStr2 = FromUtf8PtrLen(lpStr2, lLen2)
-    UdfCollateCallback = m_aRegs(lpArg).oColl.CallbackCollate(m_aRegs(lpArg).lNameIdx, sStr1, sStr2)
+    UdfCollateCallback = m_aRegs(lSlot).oColl.CallbackCollate(m_aRegs(lSlot).lNameIdx, sStr1, sStr2)
     Exit Function
 EH:
     '--- collations cannot report errors: treat a failure as "equal"

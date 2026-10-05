@@ -19,13 +19,13 @@ Attribute VB_Exposed = True
 '=========================================================================
 Option Explicit
 
-Private Declare Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" (Destination As Any, Source As Any, ByVal Length As LongPtr)
+Private Declare PtrSafe Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" (Destination As Any, Source As Any, ByVal Length As LongPtr)
 
 Private m_hCtx                      As LongPtr
 Private m_lArgc                     As Long
 Private m_lpArgv                    As LongPtr
 
-Public Property Get context() As Long
+Public Property Get context() As LongPtr
     context = m_hCtx
 End Property
 
@@ -38,12 +38,7 @@ Public Function GetInt32(ByVal ParamIdxOneBased As Long) As Long
 End Function
 
 Public Function GetInt64(ByVal ParamIdxOneBased As Long) As Variant
-#If Win64 Then
-    GetInt64 = Int64Variant(CDec(stub_sqlite3_value_int64(pvValue(ParamIdxOneBased))))
-#Else
-    '--- recover the true int64: x86 returns raw bits as Currency (value*10000)
-    GetInt64 = Int64Variant(CDec(stub_sqlite3_value_int64(pvValue(ParamIdxOneBased))) * CDec(10000))
-#End If
+    GetInt64 = stub_sqlite3_value_int64(pvValue(ParamIdxOneBased))
 End Function
 
 Public Function GetDouble(ByVal ParamIdxOneBased As Long) As Double
@@ -68,7 +63,7 @@ Public Function GetText(ByVal ParamIdxOneBased As Long) As String
     GetText = FromUtf8Ptr(stub_sqlite3_value_text(pvValue(ParamIdxOneBased)))
 End Function
 
-Public Function GetTextUTF8Ptr(ByVal ParamIdxOneBased As Long) As Long
+Public Function GetTextUTF8Ptr(ByVal ParamIdxOneBased As Long) As LongPtr
     GetTextUTF8Ptr = stub_sqlite3_value_text(pvValue(ParamIdxOneBased))
 End Function
 
@@ -105,12 +100,7 @@ Public Sub SetResultInt32(ByVal Value As Long)
 End Sub
 
 Public Sub SetResultInt64(Value As Variant)
-#If Win64 Then
     Call stub_sqlite3_result_int64(m_hCtx, CLngLng(Value))
-#Else
-    '--- the x86 declare types the int64 as Currency (raw bits = value*10000)
-    Call stub_sqlite3_result_int64(m_hCtx, CCur(CDec(Value) / 10000))
-#End If
 End Sub
 
 Public Sub SetResultDouble(ByVal Value As Double)
@@ -128,7 +118,7 @@ Public Sub SetResultText(Value As String)
     End If
 End Sub
 
-Public Sub SetResultUTF8Ptr(ByVal pUTF8 As Long, ByVal nBytes As Long)
+Public Sub SetResultUTF8Ptr(ByVal pUTF8 As LongPtr, ByVal nBytes As Long)
     Call stub_sqlite3_result_text(m_hCtx, pUTF8, nBytes, SQLITE_TRANSIENT)
 End Sub
 
@@ -140,7 +130,7 @@ Public Sub SetResultBlob(B() As Byte)
     End If
 End Sub
 
-Public Sub SetResultBlobPtr(ByVal pBlob As Long, ByVal nBytes As Long)
+Public Sub SetResultBlobPtr(ByVal pBlob As LongPtr, ByVal nBytes As Long)
     Call stub_sqlite3_result_blob(m_hCtx, pBlob, nBytes, SQLITE_TRANSIENT)
 End Sub
 

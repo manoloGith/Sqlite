@@ -1,6 +1,7 @@
 Attribute VB_Name = "mdGlobals"
 '=========================================================================
 ' mdGlobals - shared helpers (UTF-8 <-> VB String marshaling)
+' twinBASIC, Win32 + Win64 (sqlite3_int64 is LongLong on both)
 '=========================================================================
 Option Explicit
 
@@ -49,12 +50,12 @@ Public Enum eAdoFieldAttrib
     adFldKeyColumn = &H8000&
 End Enum
 
-Private Declare Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" (Destination As Any, Source As Any, ByVal Length As LongPtr)
-Private Declare Function WideCharToMultiByte Lib "kernel32" (ByVal CodePage As Long, ByVal dwFlags As Long, ByVal lpWideCharStr As Long, ByVal cchWideChar As Long, lpMultiByteStr As Any, ByVal cchMultiByte As Long, ByVal lpDefaultChar As Long, ByVal lpUsedDefaultChar As Long) As Long
-Private Declare Function MultiByteToWideChar Lib "kernel32" (ByVal CodePage As Long, ByVal dwFlags As Long, lpMultiByteStr As Any, ByVal cchMultiByte As Long, ByVal lpWideCharStr As Long, ByVal cchWideChar As Long) As Long
-Private Declare Function lstrlenA Lib "kernel32" (ByVal lpString As LongPtr) As Long
-Private Declare Sub GetSystemTimePreciseAsFileTime Lib "kernel32" (lpSystemTimeAsFileTime As Currency)
-Private Declare Function FileTimeToLocalFileTime Lib "kernel32" (lpFileTime As Currency, lpLocalFileTime As Currency) As Long
+Private Declare PtrSafe Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" (Destination As Any, Source As Any, ByVal Length As LongPtr)
+Private Declare PtrSafe Function WideCharToMultiByte Lib "kernel32" (ByVal CodePage As Long, ByVal dwFlags As Long, ByVal lpWideCharStr As LongPtr, ByVal cchWideChar As Long, lpMultiByteStr As Any, ByVal cchMultiByte As Long, ByVal lpDefaultChar As LongPtr, ByVal lpUsedDefaultChar As LongPtr) As Long
+Private Declare PtrSafe Function MultiByteToWideChar Lib "kernel32" (ByVal CodePage As Long, ByVal dwFlags As Long, lpMultiByteStr As Any, ByVal cchMultiByte As Long, ByVal lpWideCharStr As LongPtr, ByVal cchWideChar As Long) As Long
+Private Declare PtrSafe Function lstrlenA Lib "kernel32" (ByVal lpString As LongPtr) As Long
+Private Declare PtrSafe Sub GetSystemTimePreciseAsFileTime Lib "kernel32" (lpSystemTimeAsFileTime As Currency)
+Private Declare PtrSafe Function FileTimeToLocalFileTime Lib "kernel32" (lpFileTime As Currency, lpLocalFileTime As Currency) As Long
 
 '--- monotonicity guard for CreateUniqueID64
 Private m_decLastUniqueId           As Variant
@@ -145,13 +146,7 @@ Public Function BindVariant(ByVal hStmt As LongPtr, ByVal lIndex As Long, vValue
 End Function
 
 Public Function BindInt64Value(ByVal hStmt As LongPtr, ByVal lIndex As Long, vValue As Variant) As Long
-#If Win64 Then
     BindInt64Value = stub_sqlite3_bind_int64(hStmt, lIndex, CLngLng(vValue))
-#Else
-    '--- the x86 declare types the int64 as Currency (raw bits = value*10000),
-    '--- so scale the integral value down by 10000 to place it into those bits
-    BindInt64Value = stub_sqlite3_bind_int64(hStmt, lIndex, CCur(CDec(vValue) / 10000))
-#End If
 End Function
 
 Public Function BindTextValue(ByVal hStmt As LongPtr, ByVal lIndex As Long, sText As String) As Long
@@ -439,17 +434,9 @@ Public Sub CreateTableFromRecordset(oCnn As cConnection, ByVal oSrc As cRecordse
 End Sub
 
 Public Function Int64Variant(vValue As Variant) As Variant
-    Dim vRet            As Variant
-    Dim cyValue         As Currency
-    Dim nVt             As Integer
-
-    '--- build a true VT_I8 variant (matching RC6's int64 results): place
-    '--- the raw int64 bits via the Currency carrier (value scaled by 10000)
-    cyValue = CCur(CDec(vValue) / 10000)
-    nVt = VT_I8
-    Call CopyMemory(vRet, nVt, 2)
-    Call CopyMemory(ByVal VarPtr(vRet) + 8, cyValue, 8)
-    Int64Variant = vRet
+    '--- a true VT_I8 variant (matching RC6's int64 results); twinBASIC has
+    '--- a native LongLong on Win32 and Win64 alike
+    Int64Variant = CLngLng(vValue)
 End Function
 
 Public Function CreateUniqueID64() As Variant
@@ -484,12 +471,7 @@ End Function
 Private Function pvColumnInteger(ByVal hStmt As LongPtr, ByVal lCol As Long) As Variant
     Dim vDec            As Variant
 
-    '--- recover the true int64: x86 returns raw bits as Currency (value*10000)
-#If Win64 Then
     vDec = CDec(stub_sqlite3_column_int64(hStmt, lCol))
-#Else
-    vDec = CDec(stub_sqlite3_column_int64(hStmt, lCol)) * CDec(10000)
-#End If
     If vDec >= -2147483648# And vDec <= 2147483647# Then
         pvColumnInteger = CLng(vDec)
     Else

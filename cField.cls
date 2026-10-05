@@ -43,7 +43,7 @@ Private Const PTR_SIZE                      As Long = 8
 Private Const PTR_SIZE                      As Long = 4
 #End If
 
-Private Declare Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" (Destination As Any, Source As Any, ByVal Length As LongPtr)
+Private Declare PtrSafe Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" (Destination As Any, Source As Any, ByVal Length As LongPtr)
 
 Private m_pRs                       As cRecordset
 Private m_lCol                      As Long
