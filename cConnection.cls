@@ -12,7 +12,8 @@ Attribute VB_Creatable = True
 Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = True
 '=========================================================================
-' cConnection - SQLite database connection wrapper (sqlite3mc.dll)
+' cConnection - SQLite database connection wrapper for twinBASIC (Win32 +
+' Win64) over SQLite3 Multiple Ciphers deployed as sqlite3.dll
 '
 ' Implemented: open/create/close, Execute + parameterised GetRs/ExecCmd,
 ' transactions with savepoints, recordsets/commands/cursors, schema
@@ -65,7 +66,7 @@ Public Property Let MapDbNullToEmpty(ByVal MapDbNullToEmpty As Boolean)
     m_bMapDbNullToEmpty = MapDbNullToEmpty
 End Property
 
-Public Property Get DBHdl() As Long
+Public Property Get DBHdl() As LongPtr
     DBHdl = m_hDb
 End Property
 
@@ -176,6 +177,11 @@ End Property
 
 Public Function Version() As String
     Version = FromUtf8Ptr(stub_sqlite3_libversion())
+End Function
+
+'--- e.g. "SQLite3 Multiple Ciphers 2.x.y"
+Public Function CipherLibVersion() As String
+    CipherLibVersion = FromUtf8Ptr(stub_sqlite3mc_version())
 End Function
 
 Public Function CheckIntegrity() As String
@@ -703,13 +709,7 @@ Private Function pvLastInsertId() As Variant
         pvLastInsertId = CVar(0)
         Exit Function
     End If
-    '--- on x86 the API returns the raw int64 bits reinterpreted as Currency
-    '--- (value * 10000), so scale back up through Decimal to recover it
-#If Win64 Then
     pvLastInsertId = stub_sqlite3_last_insert_rowid(m_hDb)
-#Else
-    pvLastInsertId = CDec(stub_sqlite3_last_insert_rowid(m_hDb)) * CDec(10000)
-#End If
 End Function
 
 Private Function pvLastError() As String

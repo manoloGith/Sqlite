@@ -27,7 +27,7 @@ Public Property Get ActiveConnection() As cConnection
     Set ActiveConnection = m_oConnection
 End Property
 
-Public Property Get StmtHdl() As Long
+Public Property Get StmtHdl() As LongPtr
     StmtHdl = m_hStmt
 End Property
 
@@ -52,11 +52,11 @@ Public Sub SetText(ByVal ParamIdxOneBased As Long, S As String)
     pvCheck BindTextValue(m_hStmt, ParamIdxOneBased, S)
 End Sub
 
-Public Sub SetTextPtr(ByVal ParamIdxOneBased As Long, ByVal pS As Long, ByVal LenB_S As Long)
+Public Sub SetTextPtr(ByVal ParamIdxOneBased As Long, ByVal pS As LongPtr, ByVal LenB_S As Long)
     pvCheck stub_sqlite3_bind_text16(m_hStmt, ParamIdxOneBased, pS, LenB_S, SQLITE_TRANSIENT)
 End Sub
 
-Public Sub SetTextUTF8Ptr(ByVal ParamIdxOneBased As Long, ByVal pU As Long, ByVal UByteLen As Long)
+Public Sub SetTextUTF8Ptr(ByVal ParamIdxOneBased As Long, ByVal pU As LongPtr, ByVal UByteLen As Long)
     pvCheck stub_sqlite3_bind_text(m_hStmt, ParamIdxOneBased, pU, UByteLen, SQLITE_TRANSIENT)
 End Sub
 
@@ -64,7 +64,7 @@ Public Sub SetBlob(ByVal ParamIdxOneBased As Long, B() As Byte)
     pvCheck BindBlobValue(m_hStmt, ParamIdxOneBased, B)
 End Sub
 
-Public Sub SetBlobPtr(ByVal ParamIdxOneBased As Long, ByVal pb As Long, ByVal BByteLen As Long)
+Public Sub SetBlobPtr(ByVal ParamIdxOneBased As Long, ByVal pb As LongPtr, ByVal BByteLen As Long)
     pvCheck stub_sqlite3_bind_blob(m_hStmt, ParamIdxOneBased, pb, BByteLen, SQLITE_TRANSIENT)
 End Sub
 

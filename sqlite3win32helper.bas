@@ -1,8 +1,9 @@
 Attribute VB_Name = "sqlite3win32helper"
 '=========================================================================
-' sqlite3win32helper - core SQLite constants for the sqlite3win32stubs
-' declares. Only a curated set is included; for the full set of result
-' codes, flags and options refer to doc\sqlite3.h
+' sqlite3win32helper - core SQLite / SQLite3 Multiple Ciphers constants
+' for the sqlite3win32stubs declares (twinBASIC, Win32 + Win64). Only a
+' curated set is included; for the full set of result codes, flags and
+' options refer to sqlite3.h / sqlite3mc.h
 '=========================================================================
 Option Explicit
 
@@ -13,6 +14,7 @@ Public Const SQLITE_BUSY                    As Long = 5
 Public Const SQLITE_LOCKED                  As Long = 6
 Public Const SQLITE_NOMEM                   As Long = 7
 Public Const SQLITE_CONSTRAINT              As Long = 19
+Public Const SQLITE_NOTADB                  As Long = 26
 Public Const SQLITE_MISUSE                  As Long = 21
 Public Const SQLITE_RANGE                   As Long = 25
 Public Const SQLITE_ROW                     As Long = 100
@@ -50,10 +52,19 @@ Public Const SQLITE_PREPARE_PERSISTENT      As Long = &H1
 Public Const SQLITE_PREPARE_NO_VTAB         As Long = &H4
 
 '--- Destructor sentinels (last arg of bind_*/result_* text/blob)
-#If Win64 Then
 Public Const SQLITE_STATIC                  As LongPtr = 0
 Public Const SQLITE_TRANSIENT               As LongPtr = -1
-#Else
-Public Const SQLITE_STATIC                  As Long = 0
-Public Const SQLITE_TRANSIENT               As Long = -1
-#End If
+
+'--- SQLite3 Multiple Ciphers cipher ids (sqlite3mc.h, CODEC_TYPE_*); the
+'--- id of a cipher can also be resolved by name via sqlite3mc_cipher_index
+Public Const SQLITE3MC_CIPHER_AES128        As Long = 1
+Public Const SQLITE3MC_CIPHER_AES256        As Long = 2
+Public Const SQLITE3MC_CIPHER_CHACHA20      As Long = 3
+Public Const SQLITE3MC_CIPHER_SQLCIPHER     As Long = 4
+Public Const SQLITE3MC_CIPHER_RC4           As Long = 5
+Public Const SQLITE3MC_CIPHER_ASCON128      As Long = 6
+Public Const SQLITE3MC_CIPHER_AEGIS         As Long = 7
+
+'--- sqlite3_db_config ops (subset)
+Public Const SQLITE_DBCONFIG_ENABLE_FKEY    As Long = 1002
+Public Const SQLITE_DBCONFIG_ENABLE_TRIGGER As Long = 1003
