@@ -420,11 +420,33 @@ End Sub
 
 Private Sub pvTestCopy(sKey As String)
     Dim oCnn            As cConnection
-    Dim oMem            As cConnection
+    Dim oCopy           As cConnection
+    Dim sFile           As String
+    Dim baBlob()        As Byte
 
     Set oCnn = pvOpen(sKey)
-    Set oMem = oCnn.CopyDatabase(":memory:")
-    pvCheck pvCount(oMem, "T") = 1, "CopyDatabase a memoria conserva los datos"
+    '--- encrypted -> plain :memory: (SQLite3MC rejects the backup API here,
+    '--- CopyDatabase falls back to a schema + row copy)
+    Set oCopy = oCnn.CopyDatabase(":memory:")
+    pvCheck pvCount(oCopy, "T") = 1, "CopyDatabase a memoria conserva los datos"
+    pvCheck CStr(oCopy.GetRs("SELECT Big FROM T").Fields(0).Value) = BIG_INT64, "int64 intacto en la copia"
+    baBlob = oCopy.GetRs("SELECT Bin FROM T").Fields(0).Value
+    pvCheck pvSameBytes(baBlob, pvTestBlob()), "Blob intacto en la copia"
+    Set oCopy = Nothing
+
+    '--- encrypted -> encrypted file with another key
+    sFile = pvTempFolder() & "sqlite3mc_copy.db"
+    pvDeleteDb sFile
+    Set oCopy = oCnn.CopyDatabase(sFile, sKey & "-copia")
+    pvCheck pvCount(oCopy, "T") = 1, "CopyDatabase a fichero cifrado conserva los datos"
+    Set oCopy = Nothing
+    pvCheck Not pvFileIsPlainSqlite(sFile), "La copia en fichero esta cifrada"
+    Set oCopy = New cConnection
+    pvCheck oCopy.OpenDB(sFile, sKey & "-copia"), "La copia abre con su propia clave"
+    Set oCopy = Nothing
+    If chkKeepFiles.Value = vbUnchecked Then
+        pvDeleteDb sFile
+    End If
 End Sub
 
 '--- helpers --------------------------------------------------------------

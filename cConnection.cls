@@ -333,6 +333,7 @@ Public Function CopyDatabase(Optional ByVal DstDBFileName As String = ":memory:"
     Dim baMain()        As Byte
     Dim hBackup         As LongPtr
     Dim lRc             As Long
+    Dim sError          As String
 
     If m_hDb = 0 Then
         Err.Raise vbObjectError, "cConnection.CopyDatabase", "Database is not open"
@@ -340,22 +341,38 @@ Public Function CopyDatabase(Optional ByVal DstDBFileName As String = ":memory:"
     Set oDst = New cConnection
     oDst.CodecType = m_eCodecType
     If Not oDst.CreateNewDB(DstDBFileName, EncrKey) Then
-        Err.Raise vbObjectError, "cConnection.CopyDatabase", "Cannot create '" & DstDBFileName & "'"
+        sError = "Cannot create '" & DstDBFileName & "': " & oDst.OpenErrorMessage
+        GoTo QH
     End If
     baMain = ToUtf8Array("main" & vbNullChar)
     hBackup = stub_sqlite3_backup_init(oDst.frDbHandle, VarPtr(baMain(0)), m_hDb, VarPtr(baMain(0)))
-    If hBackup = 0 Then
-        Err.Raise vbObjectError, "cConnection.CopyDatabase", oDst.LastDBError()
-    End If
-    lRc = stub_sqlite3_backup_step(hBackup, -1)
-    Call stub_sqlite3_backup_finish(hBackup)
-    If lRc <> SQLITE_DONE Then
-        Err.Raise vbObjectError, "cConnection.CopyDatabase", oDst.LastDBError()
+    If hBackup <> 0 Then
+        lRc = stub_sqlite3_backup_step(hBackup, -1)
+        Call stub_sqlite3_backup_finish(hBackup)
+        If lRc <> SQLITE_DONE Then
+            sError = "Backup failed: " & GetSqliteErrStr(lRc)
+            GoTo QH
+        End If
+    Else
+        '--- SQLite3MC refuses the backup API between databases with
+        '--- different ciphers/reserved bytes (e.g. encrypted -> plain
+        '--- :memory:), so copy schema and rows through SQL instead
+        On Error GoTo EH
+        pvCopyBySql oDst
+        On Error GoTo 0
     End If
     If CompactDstDB Then
         oDst.CompactDataBase
     End If
     Set CopyDatabase = oDst
+    Exit Function
+EH:
+    sError = Err.Description
+QH:
+    '--- release the destination BEFORE raising so its teardown cannot
+    '--- clobber the error information while it propagates
+    Set oDst = Nothing
+    Err.Raise vbObjectError, "cConnection.CopyDatabase", sError
 End Function
 
 Public Sub CompactDataBase()
@@ -724,6 +741,156 @@ End Function
 Private Function pvLastError() As String
     If m_hDb <> 0 Then
         pvLastError = FromUtf8Ptr(stub_sqlite3_errmsg(m_hDb))
+    End If
+End Function
+
+Private Sub pvCopyBySql(oDst As cConnection)
+    Dim hList           As LongPtr
+    Dim sType           As String
+    Dim sName           As String
+    Dim sSql            As String
+    Dim bSequence       As Boolean
+    Dim cTables         As VBA.Collection
+    Dim cOthers         As VBA.Collection
+    Dim vItem           As Variant
+    Dim sError          As String
+
+    Set cTables = New VBA.Collection
+    Set cOthers = New VBA.Collection
+    oDst.Execute "BEGIN"
+    On Error GoTo EH
+    hList = pvPrepareOn(m_hDb, "SELECT type, name, sql FROM main.sqlite_master WHERE sql IS NOT NULL ORDER BY rowid")
+    Do While stub_sqlite3_step(hList) = SQLITE_ROW
+        sType = FromUtf8Ptr(stub_sqlite3_column_text(hList, 0))
+        sName = FromUtf8Ptr(stub_sqlite3_column_text(hList, 1))
+        sSql = FromUtf8Ptr(stub_sqlite3_column_text(hList, 2))
+        If LCase$(sName) = "sqlite_sequence" Then
+            '--- created implicitly by the first AUTOINCREMENT table
+            bSequence = True
+        ElseIf LCase$(Left$(sName, 7)) = "sqlite_" Then
+            '--- other internal tables (sqlite_stat1...) cannot be created by
+            '--- name; ANALYZE rebuilds them
+        ElseIf sType = "table" Then
+            If UCase$(Left$(LTrim$(sSql), 20)) = "CREATE VIRTUAL TABLE" Then
+                '--- creates its shadow tables too; its rows live in them
+                oDst.Execute sSql
+            Else
+                If Not pvTableExists(oDst.frDbHandle, sName) Then
+                    oDst.Execute sSql
+                End If
+                cTables.Add sName
+            End If
+        Else
+            '--- indexes, triggers and views after the data
+            cOthers.Add sSql
+        End If
+    Loop
+    Call stub_sqlite3_finalize(hList)
+    hList = 0
+    For Each vItem In cTables
+        pvCopyTableRows oDst, CStr(vItem), True
+    Next
+    If bSequence Then
+        oDst.Execute "DELETE FROM main.sqlite_sequence"
+        pvCopyTableRows oDst, "sqlite_sequence", False
+    End If
+    For Each vItem In cOthers
+        oDst.Execute CStr(vItem)
+    Next
+    oDst.Execute "COMMIT"
+    Exit Sub
+EH:
+    sError = Err.Description
+    If hList <> 0 Then
+        Call stub_sqlite3_finalize(hList)
+    End If
+    On Error Resume Next
+    oDst.Execute "ROLLBACK"
+    On Error GoTo 0
+    Err.Raise vbObjectError, "cConnection.CopyDatabase", sError
+End Sub
+
+Private Sub pvCopyTableRows(oDst As cConnection, sTable As String, ByVal bKeepRowid As Boolean)
+    Dim hSrc            As LongPtr
+    Dim hDst            As LongPtr
+    Dim lCols           As Long
+    Dim lIdx            As Long
+    Dim sCols           As String
+    Dim sVals           As String
+    Dim sError          As String
+
+    On Error GoTo EH
+    '--- keep the rowids (as the backup API would); WITHOUT ROWID tables
+    '--- have none, so fall back to the plain column list
+    If bKeepRowid Then
+        hSrc = pvTryPrepare(m_hDb, "SELECT rowid, * FROM main." & QuoteIdentifier(sTable))
+    End If
+    If hSrc = 0 Then
+        bKeepRowid = False
+        hSrc = pvPrepareOn(m_hDb, "SELECT * FROM main." & QuoteIdentifier(sTable))
+    End If
+    lCols = stub_sqlite3_column_count(hSrc)
+    For lIdx = 0 To lCols - 1
+        If lIdx > 0 Then
+            sCols = sCols & ", "
+            sVals = sVals & ", "
+        End If
+        If lIdx = 0 And bKeepRowid Then
+            sCols = sCols & "rowid"
+        Else
+            sCols = sCols & QuoteIdentifier(FromUtf8Ptr(stub_sqlite3_column_name(hSrc, lIdx)))
+        End If
+        sVals = sVals & "?"
+    Next
+    hDst = pvPrepareOn(oDst.frDbHandle, "INSERT INTO main." & QuoteIdentifier(sTable) & " (" & sCols & ") VALUES (" & sVals & ")")
+    Do While stub_sqlite3_step(hSrc) = SQLITE_ROW
+        For lIdx = 0 To lCols - 1
+            '--- copies the value with its exact storage class
+            Call stub_sqlite3_bind_value(hDst, lIdx + 1, stub_sqlite3_column_value(hSrc, lIdx))
+        Next
+        If stub_sqlite3_step(hDst) <> SQLITE_DONE Then
+            Err.Raise vbObjectError, , "Copying table '" & sTable & "': " & FromUtf8Ptr(stub_sqlite3_errmsg(oDst.frDbHandle))
+        End If
+        Call stub_sqlite3_reset(hDst)
+    Loop
+    Call stub_sqlite3_finalize(hDst)
+    Call stub_sqlite3_finalize(hSrc)
+    Exit Sub
+EH:
+    sError = Err.Description
+    If hDst <> 0 Then
+        Call stub_sqlite3_finalize(hDst)
+    End If
+    If hSrc <> 0 Then
+        Call stub_sqlite3_finalize(hSrc)
+    End If
+    Err.Raise vbObjectError, "cConnection.CopyDatabase", sError
+End Sub
+
+Private Function pvTableExists(ByVal hDb As LongPtr, sName As String) As Boolean
+    Dim hStmt           As LongPtr
+
+    hStmt = pvPrepareOn(hDb, "SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = " & QuoteString(sName))
+    pvTableExists = (stub_sqlite3_step(hStmt) = SQLITE_ROW)
+    Call stub_sqlite3_finalize(hStmt)
+End Function
+
+Private Function pvTryPrepare(ByVal hDb As LongPtr, sSql As String) As LongPtr
+    Dim baSql()         As Byte
+    Dim hStmt           As LongPtr
+
+    baSql = ToUtf8Array(sSql & vbNullChar)
+    If stub_sqlite3_prepare_v2(hDb, VarPtr(baSql(0)), -1, VarPtr(hStmt), 0) = SQLITE_OK Then
+        pvTryPrepare = hStmt
+    ElseIf hStmt <> 0 Then
+        Call stub_sqlite3_finalize(hStmt)
+    End If
+End Function
+
+Private Function pvPrepareOn(ByVal hDb As LongPtr, sSql As String) As LongPtr
+    pvPrepareOn = pvTryPrepare(hDb, sSql)
+    If pvPrepareOn = 0 Then
+        Err.Raise vbObjectError, "cConnection.CopyDatabase", "Cannot compile SQL-Statement: " & FromUtf8Ptr(stub_sqlite3_errmsg(hDb))
     End If
 End Function
 
