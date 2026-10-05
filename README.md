@@ -9,16 +9,41 @@ distribuido como **`sqlite3.dll`**.
 
 1. Descarga la versión de Windows desde
    [Releases de SQLite3MultipleCiphers](https://github.com/utelle/SQLite3MultipleCiphers/releases).
-2. Copia la DLL que corresponda a la arquitectura del ejecutable, renómbrala a
-   `sqlite3.dll` y déjala junto al `.exe` (o en otra carpeta del `PATH`):
+2. Las dos DLL deben llamarse **`sqlite3.dll`**, así que ponlas en subcarpetas `x86` y
+   `x64` junto al proyecto (`.twinproj`) y junto al ejecutable:
 
-   | Compilación twinBASIC | DLL del paquete                       | Renombrar a   |
-   |-----------------------|---------------------------------------|---------------|
-   | Win32                 | `sqlite3mc_x86.dll` (o `sqlite3mc.dll`) | `sqlite3.dll` |
-   | Win64                 | `sqlite3mc_x64.dll`                   | `sqlite3.dll` |
+   ```
+   MiProyecto\
+     MiProyecto.twinproj
+     x86\sqlite3.dll      <- sqlite3mc_x86.dll (o sqlite3mc.dll) renombrada
+     x64\sqlite3.dll      <- sqlite3mc_x64.dll renombrada
+     Build\MiProyecto_win32.exe
+     Build\x86\sqlite3.dll
+     Build\MiProyecto_win64.exe
+     Build\x64\sqlite3.dll
+   ```
+
+   `mdSqlite3Loader.bas` carga la DLL **por ruta completa** antes de la primera llamada.
+   Busca primero en `App.Path\x86` o `App.Path\x64` (según la arquitectura del proceso),
+   después en `App.Path` y por último en el directorio actual. Esto es necesario en el IDE:
+   el proceso es el de twinBASIC, y Windows no busca DLL en la carpeta del proyecto.
+   También se puede indicar la ruta: `Sqlite3EnsureLoaded "C:\ruta\sqlite3.dll"`.
 
 3. En twinBASIC, importa todos los `.bas` y `.cls` del repositorio en el proyecto
    (*Project > Import file...*).
+
+### Si no carga la DLL
+
+`cConnection.OpenDB`/`CreateNewDB` devuelven `False` con `OpenErrorCode = -1`, y
+`OpenErrorMessage` (o `Sqlite3LoadError`) explica la causa:
+
+| Mensaje | Causa | Solución |
+|---------|-------|----------|
+| `No se encuentra sqlite3.dll` | No está en ninguna de las rutas probadas (se listan) | Copiarla a `x86\` / `x64\` junto al proyecto o al exe |
+| `error 193` | DLL de la otra arquitectura (p.ej. la x64 en un proceso de 32 bits) | Usar la DLL que corresponda a la arquitectura del proceso |
+| `error 126` | Falta una DLL de la que depende | Instalar *Microsoft Visual C++ Redistributable* (x86 y/o x64) |
+| `error 5` | Fichero bloqueado (descargado de Internet) | *Propiedades > Desbloquear* |
+| `es SQLite sin cifrado` | Es una `sqlite3.dll` normal, no la de SQLite3MC | Usar la DLL de SQLite3 Multiple Ciphers |
 
 ## Qué cambió respecto a la versión VB6
 
@@ -75,11 +100,13 @@ Si la clave o el cifrado no son correctos, `OpenDB` devuelve `False` y
 `Test/cTestColl.cls` implementan `IFunction`, `IAggregateFunction` e `ICollation` para
 probar los callbacks `CDecl`.
 
-1. Importa en el proyecto los módulos del wrapper y los cuatro ficheros de `Test/`.
+1. Importa en el proyecto los módulos del wrapper (incluido `mdSqlite3Loader.bas`) y los
+   cuatro ficheros de `Test/`.
 2. Establece `frmTest` como formulario de inicio.
 3. Compila **una vez como Win32 y otra como Win64**, cada una con su `sqlite3.dll`,
    y pulsa **Ejecutar pruebas**. Todas las líneas deben salir `[OK]`. Sale `[SKIP]`
-   cuando un cifrado no está compilado en la DLL.
+   cuando un cifrado no está compilado en la DLL. La primera línea indica qué `sqlite3.dll`
+   se ha cargado; si no se puede cargar, explica por qué.
 
 Las pruebas comprueban:
 

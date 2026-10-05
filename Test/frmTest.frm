@@ -131,6 +131,20 @@ Private Sub cmdRun_Click()
     pvLog "Inicio: " & Format$(Now, "yyyy-mm-dd hh:nn:ss") & "   BD: " & m_sDbFile
     pvLog String$(70, "=")
 
+    '--- load sqlite3.dll by full path first; without it nothing else can run
+    If Not Sqlite3EnsureLoaded() Then
+        pvCheck False, "Cargar sqlite3.dll"
+        pvLog vbNullString
+        pvLog Sqlite3LoadError
+        pvLog vbNullString
+        pvLog "App.Path = " & App.Path
+        pvLog "CurDir   = " & CurDir$
+        Screen.MousePointer = vbDefault
+        cmdRun.Enabled = True
+        Exit Sub
+    End If
+    pvCheck True, "sqlite3.dll cargada: " & Sqlite3LoadedPath
+
     pvRunTest "Entorno y versiones", 1, sKey
     pvRunTest "Crear BD cifrada y tipos de datos", 2, sKey
     pvRunTest "Leer con la clave correcta", 3, sKey
@@ -172,7 +186,7 @@ Private Sub pvRunTest(sTitle As String, ByVal lTest As Long, sKey As String)
     End Select
     Exit Sub
 EH:
-    pvCheck False, "Error inesperado " & Err.Number & ": " & Err.Description
+    pvCheck False, "Error inesperado " & Err.Number & " (&H" & Hex$(Err.Number) & ") en " & Err.Source & ": " & Err.Description
 End Sub
 
 '--- tests ----------------------------------------------------------------

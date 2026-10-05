@@ -163,6 +163,7 @@ End Property
 
 '--- reason of the last failed OpenDB/OpenDBReadOnly/CreateNewDB (empty/0 after a successful open)
 Public Property Get OpenErrorCode() As Long
+    '--- -1 = sqlite3.dll could not be loaded (OpenErrorMessage says why)
     OpenErrorCode = m_lOpenErrCode
 End Property
 
@@ -176,11 +177,13 @@ Public Property Get OpenFailedBadKey() As Boolean
 End Property
 
 Public Function Version() As String
+    pvEnsureDll "cConnection.Version"
     Version = FromUtf8Ptr(stub_sqlite3_libversion())
 End Function
 
 '--- e.g. "SQLite3 Multiple Ciphers 2.x.y"
 Public Function CipherLibVersion() As String
+    pvEnsureDll "cConnection.CipherLibVersion"
     CipherLibVersion = FromUtf8Ptr(stub_sqlite3mc_version())
 End Function
 
@@ -582,6 +585,12 @@ Private Function pvOpenDatabase(sFileName As String, ByVal lFlags As Long, sEncr
     pvCloseDatabase
     m_lOpenErrCode = 0
     m_sOpenErrMsg = vbNullString
+    '--- locate/load sqlite3.dll by full path first (see mdSqlite3Loader)
+    If Not Sqlite3EnsureLoaded() Then
+        m_lOpenErrCode = -1
+        m_sOpenErrMsg = Sqlite3LoadError
+        Exit Function
+    End If
     baFile = ToUtf8Array(sFileName & vbNullChar)
     lRc = stub_sqlite3_open_v2(VarPtr(baFile(0)), VarPtr(m_hDb), lFlags, 0)
     If lRc = SQLITE_OK And Len(sEncrKey) > 0 Then
@@ -717,6 +726,12 @@ Private Function pvLastError() As String
         pvLastError = FromUtf8Ptr(stub_sqlite3_errmsg(m_hDb))
     End If
 End Function
+
+Private Sub pvEnsureDll(sSource As String)
+    If Not Sqlite3EnsureLoaded() Then
+        Err.Raise vbObjectError + 48, sSource, Sqlite3LoadError
+    End If
+End Sub
 
 Private Sub pvPopTo(sName As String)
     '--- drop stack frames down to and including the named savepoint
