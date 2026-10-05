@@ -67,3 +67,34 @@ Cnn.ReKey "NuevaClave"   ' cambia la clave; Cnn.ReKey "" quita el cifrado
 
 Si la clave o el cifrado no son correctos, `OpenDB` devuelve `False` y
 `OpenFailedBadKey` es `True` (`SQLITE_NOTADB`, 26).
+
+## Formulario de prueba (`Test/`)
+
+`Test/frmTest.frm` es un banco de pruebas que ejercita el wrapper completo contra la
+`sqlite3.dll` de SQLite3MC. Las clases `Test/cTestFunc.cls`, `Test/cTestAgg.cls` y
+`Test/cTestColl.cls` implementan `IFunction`, `IAggregateFunction` e `ICollation` para
+probar los callbacks `CDecl`.
+
+1. Importa en el proyecto los módulos del wrapper y los cuatro ficheros de `Test/`.
+2. Establece `frmTest` como formulario de inicio.
+3. Compila **una vez como Win32 y otra como Win64**, cada una con su `sqlite3.dll`,
+   y pulsa **Ejecutar pruebas**. Todas las líneas deben salir `[OK]`. Sale `[SKIP]`
+   cuando un cifrado no está compilado en la DLL.
+
+Las pruebas comprueban:
+
+| # | Prueba |
+|---|--------|
+| 1 | Plataforma, tamaño de `LongPtr`, versión de SQLite y de SQLite3MC, cifrados disponibles |
+| 2 | Crear una BD cifrada; texto Unicode, int64 > 2^53, double, blob, fecha y NULL; `LastInsertAutoID` es `LongLong`; el fichero no tiene la cabecera `SQLite format 3` |
+| 3 | Reabrir con la clave y verificar todos los valores e `integrity_check` |
+| 4 | Clave incorrecta o sin clave: `OpenDB = False`, `OpenFailedBadKey`, `SQLITE_NOTADB` |
+| 5 | `BeginTrans` / `RollbackTrans` / `CommitTrans` con savepoints anidados |
+| 6 | UDF escalares, agregado y colación VB (callbacks `CDecl`), un error VB que llega como error SQL, y la eliminación de la UDF |
+| 7 | `cCommand` (1000 inserciones con `SetInt64`) y `cSelectCommand` |
+| 8 | `ReKey`: cambiar la clave, quitar el cifrado (`ReKey ""`) y volver a cifrar |
+| 9 | Crear, reabrir y leer con cada cifrado: AES128, AES256, ChaCha20, SQLCipher, RC4, Ascon128 y AEGIS |
+| 10 | `CopyDatabase` a `:memory:` (API de backup) |
+
+Los ficheros de prueba se crean en `%TEMP%` y se borran al terminar, salvo que se marque
+*Conservar ficheros*.
